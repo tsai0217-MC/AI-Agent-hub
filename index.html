@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AgentHub Prototype v0.2</title>
+  <style>
+    :root{
+      --bg:#0b0d14;--panel:#121620;--panel2:#181d29;--panel3:#202636;
+      --border:#2a3142;--text:#f4f6fb;--muted:#9099ad;--purple:#7c68ff;
+      --purple2:#a79aff;--cyan:#48c9ff;--green:#4ade80;--orange:#fbbf24;--red:#fb7185;
+      --sidebar:300px;--rail:72px;--right:285px;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;height:100%}
+    button,input,textarea,select{font:inherit}
+    button{cursor:pointer}
+    .app{display:grid;grid-template-columns:var(--rail) var(--sidebar) minmax(0,1fr);height:100vh;overflow:hidden}
+    .rail{background:#080a10;border-right:1px solid var(--border);padding:12px 10px;display:flex;flex-direction:column;align-items:center;gap:10px}
+    .brand,.company-icon,.add-icon{width:48px;height:48px;border-radius:16px;border:1px solid var(--border);display:grid;place-items:center;background:var(--panel2);color:#fff;font-weight:800;transition:.15s}
+    .brand{background:linear-gradient(145deg,var(--purple),#5140c8);border:0;font-size:18px}
+    .company-icon.active{border-color:var(--purple);box-shadow:0 0 0 2px #7c68ff33;background:#211d3d}
+    .company-icon:hover,.add-icon:hover{transform:translateY(-1px);border-color:#59627a}
+    .rail-sep{height:1px;background:var(--border);width:34px}
+    .add-icon{color:var(--green);font-size:24px}
+    .sidebar{background:#0e1119;border-right:1px solid var(--border);display:flex;flex-direction:column;min-width:0}
+    .company-head{padding:18px;border-bottom:1px solid var(--border)}
+    .company-head h2{margin:0;font-size:17px}.company-head small{color:var(--muted)}
+    .side-scroll{overflow:auto;padding:14px 10px 24px}
+    .section{margin-bottom:22px}
+    .section-title{font-size:11px;color:var(--muted);font-weight:800;letter-spacing:.08em;padding:0 9px 8px}
+    .nav-item{display:flex;align-items:center;gap:9px;width:100%;border:0;background:transparent;color:#c7ccda;text-align:left;padding:9px 10px;border-radius:8px;margin:2px 0}
+    .nav-item:hover{background:var(--panel2);color:#fff}.nav-item.active{background:#26213e;color:#fff}
+    .nav-item .dot{width:9px;height:9px;border-radius:50%;background:var(--purple)}
+    .nav-item.add{color:var(--muted)}
+    .nav-item.danger{color:var(--red)}
+    .main{display:grid;grid-template-rows:64px minmax(0,1fr);min-width:0;overflow:hidden}
+    .topbar{border-bottom:1px solid var(--border);background:#0e1119;display:flex;align-items:center;justify-content:space-between;padding:0 18px;gap:14px}
+    .top-title{min-width:0}.top-title strong{display:block;font-size:17px}.top-title span{font-size:12px;color:var(--muted)}
+    .tabs{display:flex;gap:6px;flex-wrap:wrap}.tab{border:1px solid transparent;background:transparent;color:var(--muted);padding:8px 12px;border-radius:8px}
+    .tab:hover{background:var(--panel2);color:#fff}.tab.active{background:#282241;color:#fff;border-color:#41376b}
+    .view{min-height:0;overflow:hidden}
+    .chat-layout{height:100%;display:grid;grid-template-columns:minmax(0,1fr) var(--right)}
+    .chat-main{min-width:0;display:grid;grid-template-rows:minmax(0,1fr) auto}
+    .messages{overflow:auto;padding:24px 28px 14px}
+    .msg{display:grid;grid-template-columns:42px minmax(0,1fr);gap:12px;margin-bottom:22px}
+    .avatar{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;font-weight:800;background:var(--panel3)}
+    .msg-head{display:flex;align-items:baseline;gap:8px}.msg-head strong{font-size:14px}.msg-head small{color:var(--muted);font-size:10px}
+    .msg-body{color:#d7dbea;line-height:1.55;margin-top:4px;white-space:pre-wrap}
+    .composer-wrap{padding:12px 18px 18px;background:linear-gradient(transparent,#0b0d14 18%)}
+    .quick-actions{display:flex;gap:7px;margin-bottom:8px;flex-wrap:wrap}
+    .mini-btn,.primary,.secondary,.danger-btn{border:1px solid var(--border);background:var(--panel2);color:#dce0ec;padding:8px 11px;border-radius:8px}
+    .mini-btn:hover,.secondary:hover{border-color:#566079;background:#202638}
+    .primary{background:var(--purple);border-color:var(--purple);color:#fff;font-weight:700}
+    .primary:hover{filter:brightness(1.08)}
+    .danger-btn{border-color:#6a3340;color:#ff9aad;background:#28151b}
+    .composer{display:flex;gap:9px;border:1px solid var(--border);background:var(--panel);padding:9px;border-radius:12px}
+    .composer textarea{flex:1;resize:none;min-height:44px;max-height:120px;background:transparent;border:0;outline:0;color:#fff;padding:8px}
+    .rightbar{border-left:1px solid var(--border);background:#0e1119;padding:18px;overflow:auto}
+    .rightbar h4{font-size:11px;color:var(--muted);letter-spacing:.08em;margin:8px 0 10px}
+    .member{display:flex;align-items:center;gap:9px;margin:10px 0}.member .avatar{width:32px;height:32px;border-radius:10px;font-size:12px}
+    .stat{background:var(--panel2);border:1px solid var(--border);padding:11px;border-radius:10px;margin-top:8px}
+    .stat span{color:var(--muted);font-size:11px}.stat strong{display:block;margin-top:4px}
+    .board-shell{height:100%;display:grid;grid-template-columns:210px minmax(0,1fr) 300px;min-width:0}
+    .toolbox,.inspector{background:#0e1119;padding:14px;border-right:1px solid var(--border);overflow:auto}
+    .inspector{border-right:0;border-left:1px solid var(--border)}
+    .toolbox h4,.inspector h4{font-size:11px;color:var(--muted);letter-spacing:.08em;margin:8px 0 12px}
+    .tool{width:100%;text-align:left;border:1px solid var(--border);background:var(--panel2);color:#e6e8ef;border-radius:9px;padding:10px;margin-bottom:8px}
+    .tool:hover{border-color:#59627a}
+    .canvas-wrap{position:relative;overflow:hidden;background-color:#0b0e16;background-image:radial-gradient(#31384a 1px,transparent 1px);background-size:22px 22px;touch-action:none}
+    .canvas-world{position:absolute;left:0;top:0;transform-origin:0 0;width:2400px;height:1600px}
+    .edge-layer{position:absolute;inset:0;width:2400px;height:1600px;overflow:visible;pointer-events:none}
+    .edge-layer path{fill:none;stroke:#6d7690;stroke-width:3}
+    .edge-layer path.loop{stroke:var(--orange);stroke-dasharray:9 7}
+    .node{position:absolute;width:190px;min-height:88px;border:1px solid var(--border);background:var(--panel2);border-radius:13px;padding:12px;box-shadow:0 10px 28px #0004;user-select:none;touch-action:none}
+    .node.selected{border-color:var(--purple);box-shadow:0 0 0 2px #7c68ff33,0 12px 30px #0005}
+    .node-title{font-weight:800;font-size:13px}.node-sub{font-size:11px;color:var(--muted);margin-top:5px}
+    .node-status{font-size:10px;margin-top:8px;color:var(--cyan)}
+    .port{position:absolute;width:14px;height:14px;border-radius:50%;background:var(--purple);border:2px solid #c7c0ff;top:50%;transform:translateY(-50%)}
+    .port.in{left:-8px}.port.out{right:-8px;cursor:crosshair}
+    .node.decision{border-color:#326a7b}.node.approval{border-color:#7a6531}.node.loop-node{border-color:#517050}
+    .canvas-controls{position:absolute;right:14px;bottom:14px;display:flex;gap:7px;z-index:20}
+    .canvas-controls button{width:38px;height:38px;border-radius:9px;border:1px solid var(--border);background:#151a26;color:#fff}
+    .field{margin-bottom:13px}.field label{display:block;color:var(--muted);font-size:11px;margin-bottom:6px}
+    .field input,.field textarea,.field select{width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:8px;color:#fff;padding:9px;outline:none}
+    .field textarea{min-height:84px;resize:vertical}
+    .checks label{display:flex;align-items:center;gap:8px;color:#d5d9e5;margin:8px 0;font-size:12px}
+    .empty{display:grid;place-items:center;height:100%;color:var(--muted);text-align:center;padding:30px}
+    .modal-backdrop{position:fixed;inset:0;background:#0009;display:none;align-items:center;justify-content:center;z-index:100}
+    .modal-backdrop.open{display:flex}.modal{width:min(520px,calc(100vw - 32px));max-height:88vh;overflow:auto;background:#121620;border:1px solid var(--border);border-radius:16px;padding:20px}
+    .modal h3{margin:0 0 18px}.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+    .toast{position:fixed;right:18px;bottom:18px;background:#202637;border:1px solid #46506a;color:#fff;padding:11px 14px;border-radius:10px;z-index:200;opacity:0;transform:translateY(8px);pointer-events:none;transition:.2s}
+    .toast.show{opacity:1;transform:none}
+    .badge{display:inline-block;padding:3px 7px;border-radius:999px;font-size:9px;background:#2b2546;color:#c9c2ff}
+    .hint{font-size:11px;color:var(--muted);line-height:1.5}
+    .sep{height:1px;background:var(--border);margin:14px 0}
+    @media(max-width:1000px){:root{--sidebar:230px;--right:230px}.board-shell{grid-template-columns:170px minmax(0,1fr) 250px}}
+    @media(max-width:780px){.app{grid-template-columns:58px 190px minmax(0,1fr)}:root{--rail:58px;--sidebar:190px}.rightbar{display:none}.chat-layout{grid-template-columns:1fr}.board-shell{grid-template-columns:150px minmax(0,1fr)}.inspector{display:none}.tabs{gap:2px}.tab{padding:7px}}
+  </style>
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="rail">
+    <button class="brand" title="AgentHub">AH</button>
+    <div class="rail-sep"></div>
+    <div id="companyRail"></div>
+    <button class="add-icon" id="addCompanyBtn" title="Create company">+</button>
+  </aside>
+
+  <aside class="sidebar">
+    <div class="company-head">
+      <h2 id="companyName">AgentHub</h2>
+      <small id="companyMeta">AI Organization</small>
+    </div>
+    <div class="side-scroll">
+      <section class="section">
+        <div class="section-title">PROJECTS</div>
+        <div id="projectList"></div>
+        <button class="nav-item add" id="addProjectBtn">＋ New Project</button>
+      </section>
+      <section class="section">
+        <div class="section-title">AI EMPLOYEES</div>
+        <div id="agentList"></div>
+        <button class="nav-item add" id="hireAgentBtn">＋ Hire AI Employee</button>
+      </section>
+      <section class="section">
+        <div class="section-title">COMPANY TOOLS</div>
+        <button class="nav-item" data-view="organization">◫ Organization Board</button>
+        <button class="nav-item" data-view="workflow">⌁ Workflow Builder</button>
+      </section>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="top-title">
+        <strong id="topTitle"># Product Launch</strong>
+        <span id="topSubtitle">AI team workspace</span>
+      </div>
+      <nav class="tabs">
+        <button class="tab active" data-view="chat">Chat</button>
+        <button class="tab" data-view="organization">Organization</button>
+        <button class="tab" data-view="workflow">Workflow</button>
+      </nav>
+    </header>
+    <section class="view" id="view"></section>
+  </main>
+</div>
+
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal">
+    <h3 id="modalTitle">Create</h3>
+    <form id="modalForm"></form>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const STORAGE_KEY = "agenthub-prototype-v02";
+  const uid = (p="id") => p + "_" + Math.random().toString(36).slice(2,9);
+  const clone = o => JSON.parse(JSON.stringify(o));
+  const now = () => new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+
+  const seed = {
+    activeCompanyId:"c1", activeProjectId:"p1", activeView:"chat",
+    companies:[
+      {id:"c1",name:"BioNova AI",icon:"🧬",description:"AI Organization"},
+      {id:"c2",name:"AgentHub Labs",icon:"🚀",description:"Product Studio"}
+    ],
+    projects:[
+      {id:"p1",companyId:"c1",name:"Product Launch",description:"Launch an AI-enabled biotech product"},
+      {id:"p2",companyId:"c1",name:"Market Research",description:"Competitive intelligence"},
+      {id:"p3",companyId:"c1",name:"Website Build",description:"Build product website"},
+      {id:"p4",companyId:"c2",name:"AgentHub Beta",description:"Build AgentHub prototype"}
+    ],
+    agents:[
+      {id:"a1",companyId:"c1",name:"David",role:"CEO",provider:"OpenAI",model:"GPT",prompt:"Coordinate the team and integrate results.",authority:"Executive",weight:90,permissions:["communicate","assign","review","approve","stop","override"]},
+      {id:"a2",companyId:"c1",name:"Emma",role:"Research",provider:"Anthropic",model:"Claude",prompt:"Research, synthesize evidence, and provide concise recommendations.",authority:"Specialist",weight:60,permissions:["communicate","review"]},
+      {id:"a3",companyId:"c1",name:"Alex",role:"Engineer",provider:"OpenAI",model:"GPT",prompt:"Design and implement technical solutions.",authority:"Specialist",weight:75,permissions:["communicate","assign"]},
+      {id:"a4",companyId:"c1",name:"Maya",role:"Marketing",provider:"Google",model:"Gemini",prompt:"Create positioning and marketing strategy.",authority:"Specialist",weight:65,permissions:["communicate"]},
+      {id:"a5",companyId:"c2",name:"Nova",role:"Product Lead",provider:"OpenAI",model:"GPT",prompt:"Own product definition and priorities.",authority:"Manager",weight:80,permissions:["communicate","assign","review","approve"]}
+    ],
+    projectAgents:[
+      {projectId:"p1",agentId:"a1"},{projectId:"p1",agentId:"a2"},{projectId:"p1",agentId:"a3"},{projectId:"p1",agentId:"a4"},
+      {projectId:"p2",agentId:"a1"},{projectId:"p2",agentId:"a2"},{projectId:"p3",agentId:"a3"},{projectId:"a4",agentId:"a4"},
+      {projectId:"p4",agentId:"a5"}
+    ],
+    messages:[
+      {id:"m1",projectId:"p1",senderType:"human",senderName:"You",content:"Prepare a launch plan for our new product.",time:"09:10"},
+      {id:"m2",projectId:"p1",senderType:"agent",agentId:"a1",senderName:"David",content:"I’ll coordinate the team. Emma, research competitors and customer needs. Alex, prepare the technical launch checklist.",time:"09:11"},
+      {id:"m3",projectId:"p1",senderType:"agent",agentId:"a2",senderName:"Emma",content:"Research started. I’ll summarize the strongest competitor patterns and risks.",time:"09:12"},
+      {id:"m4",projectId:"p1",senderType:"agent",agentId:"a3",senderName:"Alex",content:"I’m preparing the engineering readiness checklist and deployment dependencies.",time:"09:12"}
+    ],
+    orgNodes:[
+      {id:"on1",companyId:"c1",agentId:"a1",x:520,y:140},{id:"on2",companyId:"c1",agentId:"a2",x:220,y:390},
+      {id:"on3",companyId:"c1",agentId:"a3",x:520,y:390},{id:"on4",companyId:"c1",agentId:"a4",x:820,y:390},
+      {id:"on5",companyId:"c2",agentId:"a5",x:500,y:220}
+    ],
+    orgEdges:[
+      {id:"oe1",companyId:"c1",sourceAgentId:"a1",targetAgentId:"a2",type:"manages",assign:true,review:true,approve:false},
+      {id:"oe2",companyId:"c1",sourceAgentId:"a1",targetAgentId:"a3",type:"manages",assign:true,review:true,approve:true},
+      {id:"oe3",companyId:"c1",sourceAgentId:"a1",targetAgentId:"a4",type:"manages",assign:true,review:true,approve:true}
+    ],
+    workflows:[
+      {id:"w1",projectId:"p1",name:"Launch Workflow"},
+      {id:"w2",projectId:"p4",name:"Beta Build"}
+    ],
+    workflowNodes:[
+      {id:"wn1",workflowId:"w1",type:"start",title:"Objective",subtitle:"Launch product",x:120,y:180},
+      {id:"wn2",workflowId:"w1",type:"agent",title:"Research",subtitle:"Emma · Research",agentId:"a2",x:390,y:180},
+      {id:"wn3",workflowId:"w1",type:"agent",title:"Engineer",subtitle:"Alex · Engineer",agentId:"a3",x:660,y:180},
+      {id:"wn4",workflowId:"w1",type:"decision",title:"Review Result",subtitle:"Approved?",x:930,y:180},
+      {id:"wn5",workflowId:"w1",type:"approval",title:"Human Approval",subtitle:"Final checkpoint",x:930,y:430},
+      {id:"wn6",workflowId:"w2",type:"start",title:"Objective",subtitle:"Build beta",x:180,y:200},
+      {id:"wn7",workflowId:"w2",type:"agent",title:"Product",subtitle:"Nova · Product Lead",agentId:"a5",x:480,y:200}
+    ],
+    workflowEdges:[
+      {id:"we1",workflowId:"w1",source:"wn1",target:"wn2",label:""},
+      {id:"we2",workflowId:"w1",source:"wn2",target:"wn3",label:""},
+      {id:"we3",workflowId:"w1",source:"wn3",target:"wn4",label:"Review"},
+      {id:"we4",workflowId:"w1",source:"wn4",target:"wn5",label:"Approved"},
+      {id:"we5",workflowId:"w1",source:"wn4",target:"wn3",label:"Needs revision",loop:true,maxLoops:3},
+      {id:"we6",workflowId:"w2",source:"wn6",target:"wn7",label:""}
+    ]
+  };
+
+  let state;
+  try { state = JSON.parse(localStorage.getItem(STORAGE_KEY)) || clone(seed); }
+  catch { state = clone(seed); }
+  const save = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+
+  const el = id => document.getElementById(id);
+  const view = el("view");
+  const toast = msg => { const t=el("toast"); t.textContent=msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1800); };
+  const company = () => state.companies.find(c=>c.id===state.activeCompanyId) || state.companies[0];
+  const project = () => state.projects.find(p=>p.id===state.activeProjectId) || state.projects.find(p=>p.companyId===state.activeCompanyId);
+  const companyAgents = () => state.agents.filter(a=>a.companyId===state.activeCompanyId);
+  const projectAgents = () => {
+    const p=project(); if(!p) return [];
+    const ids=state.projectAgents.filter(x=>x.projectId===p.id).map(x=>x.agentId);
+    return state.agents.filter(a=>ids.includes(a.id));
+  };
+  const activeWorkflow = () => {
+    const p=project(); if(!p) return null;
+    let w=state.workflows.find(w=>w.projectId===p.id);
+    if(!w){ w={id:uid("w"),projectId:p.id,name:p.name+" Workflow"}; state.workflows.push(w); save(); }
+    return w;
+  };
+  const esc = s => String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
+
+  function renderShell(){
+    const c=company();
+    el("companyName").textContent=c?.name || "AgentHub";
+    el("companyMeta").textContent=c?.description || "AI Organization";
+    el("companyRail").innerHTML=state.companies.map(c=>`<button class="company-icon ${c.id===state.activeCompanyId?"active":""}" data-company="${c.id}" title="${esc(c.name)}">${esc(c.icon||"🏢")}</button>`).join("");
+    const projects=state.projects.filter(p=>p.companyId===state.activeCompanyId);
+    if(!projects.some(p=>p.id===state.activeProjectId) && projects[0]) state.activeProjectId=projects[0].id;
+    el("projectList").innerHTML=projects.map(p=>`<button class="nav-item ${p.id===state.activeProjectId&&state.activeView==="chat"?"active":""}" data-project="${p.id}"># ${esc(p.name)}</button>`).join("");
+    el("agentList").innerHTML=companyAgents().map(a=>`<button class="nav-item" data-agent="${a.id}"><span class="dot"></span>${esc(a.name)} · ${esc(a.role)}</button>`).join("");
+    document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("active",b.dataset.view===state.activeView));
+    document.querySelectorAll("[data-view].nav-item").forEach(b=>b.classList.toggle("active",b.dataset.view===state.activeView));
+    const p=project();
+    el("topTitle").textContent=state.activeView==="chat" ? `# ${p?.name||"No Project"}` : state.activeView==="organization" ? "Organization Board" : "Workflow Builder";
+    el("topSubtitle").textContent=state.activeView==="chat" ? (p?.description||"AI team workspace") : state.activeView==="organization" ? "Authority · hierarchy · permissions" : "Nodes · edges · branches · loops";
+  }
+
+  function render(){
+    renderShell();
+    if(state.activeView==="chat") renderChat();
+    if(state.activeView==="organization") renderOrganization();
+    if(state.activeView==="workflow") renderWorkflow();
+    save();
+  }
+
+  function renderChat(){
+    const p=project();
+    if(!p){ view.innerHTML='<div class="empty">Create a project to start.</div>'; return; }
+    const msgs=state.messages.filter(m=>m.projectId===p.id);
+    const agents=projectAgents();
+    view.innerHTML=`
+      <div class="chat-layout">
+        <div class="chat-main">
+          <div class="messages" id="messages">
+            ${msgs.length?msgs.map(m=>{
+              const a=state.agents.find(x=>x.id===m.agentId);
+              const color=a?.role==="Research"?"#48c9ff":a?.role==="Engineer"?"#4ade80":a?.role==="Marketing"?"#fbbf24":"#7c68ff";
+              return `<div class="msg"><div class="avatar" style="background:${color}22;color:${color}">${esc((m.senderName||"?")[0])}</div>
+                <div><div class="msg-head"><strong>${esc(m.senderName)}</strong><small>${esc(m.time)}</small></div>
+                <div class="msg-body">${esc(m.content)}</div></div></div>`;
+            }).join(""):'<div class="empty">No messages yet. Start the project conversation.</div>'}
+          </div>
+          <div class="composer-wrap">
+            <div class="quick-actions">
+              <button class="mini-btn" id="mentionBtn">@ Mention</button>
+              <button class="mini-btn" id="broadcastBtn">Broadcast</button>
+              <button class="danger-btn" id="stopAllBtn">■ Stop All</button>
+            </div>
+            <div class="composer"><textarea id="messageInput" placeholder="Message your AI team…"></textarea><button class="primary" id="sendBtn">Send</button></div>
+          </div>
+        </div>
+        <aside class="rightbar">
+          <h4>PROJECT TEAM</h4>
+          ${agents.map(a=>`<div class="member"><div class="avatar">${esc(a.name[0])}</div><div><strong>${esc(a.name)}</strong><div class="hint">${esc(a.role)}</div></div></div>`).join("")||'<div class="hint">No agents assigned.</div>'}
+          <div class="sep"></div>
+          <h4>PROJECT STATUS</h4>
+          <div class="stat"><span>Workflow</span><strong>${activeWorkflow()?.name||"Not configured"}</strong></div>
+          <div class="stat"><span>Agents</span><strong>${agents.length}</strong></div>
+          <div class="stat"><span>Prototype storage</span><strong>Local persistence ✓</strong></div>
+          <p class="hint" style="margin-top:14px">Supabase adapter can replace local storage later without changing the product model.</p>
+        </aside>
+      </div>`;
+    const box=el("messages"); box.scrollTop=box.scrollHeight;
+    el("sendBtn").onclick=sendMessage;
+    el("messageInput").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}});
+    el("mentionBtn").onclick=()=>{const a=agents[0]; if(a){el("messageInput").value=`@${a.name} `;el("messageInput").focus();}};
+    el("broadcastBtn").onclick=()=>{el("messageInput").value="@team ";el("messageInput").focus();};
+    el("stopAllBtn").onclick=()=>toast("All simulated agent activity stopped.");
+  }
+
+  function sendMessage(){
+    const input=el("messageInput"), text=input.value.trim(); if(!text)return;
+    const p=project();
+    state.messages.push({id:uid("m"),projectId:p.id,senderType:"human",senderName:"You",content:text,time:now()});
+    input.value=""; save(); renderChat();
+    const agents=projectAgents(); const responder=agents.find(a=>a.role==="CEO")||agents[0];
+    if(responder){
+      setTimeout(()=>{
+        state.messages.push({id:uid("m"),projectId:p.id,senderType:"agent",agentId:responder.id,senderName:responder.name,
+          content:`Received. I’ll coordinate this inside ${p.name}. (Simulated response — real provider orchestration comes next.)`,time:now()});
+        save(); if(state.activeView==="chat"&&project()?.id===p.id)renderChat();
+      },550);
+    }
+  }
+
+  function renderOrganization(){
+    const nodes=state.orgNodes.filter(n=>n.companyId===state.activeCompanyId);
+    const edges=state.orgEdges.filter(e=>e.companyId===state.activeCompanyId);
+    view.innerHTML=`
+      <div class="board-shell">
+        <aside class="toolbox">
+          <h4>ORGANIZATION TOOLS</h4>
+          <button class="tool" id="orgAddAgent">＋ Add Agent Node</button>
+          <button class="tool" id="orgAutoLayout">▦ Auto Layout</button>
+          <button class="tool" id="orgResetView">⌂ Reset View</button>
+          <div class="sep"></div>
+          <p class="hint"><b>Drag</b> a card to arrange it.<br><b>Drag from the purple output dot</b> to another card to create an authority relationship.<br>Position changes layout; connections change authority.</p>
+        </aside>
+        <div class="canvas-wrap" id="orgCanvas">
+          <div class="canvas-world" id="orgWorld">
+            <svg class="edge-layer" id="orgEdges"></svg>
+            ${nodes.map(n=>orgNodeHTML(n)).join("")}
+          </div>
+          <div class="canvas-controls"><button id="orgZoomOut">−</button><button id="orgZoomIn">＋</button><button id="orgCenter">⌂</button></div>
+        </div>
+        <aside class="inspector" id="orgInspector"><h4>INSPECTOR</h4><p class="hint">Select an agent or relationship.</p></aside>
+      </div>`;
+    setupCanvas("org",nodes,edges);
+    el("orgAddAgent").onclick=()=>openAddOrgNode();
+    el("orgAutoLayout").onclick=autoLayoutOrg;
+    el("orgResetView").onclick=()=>resetCanvas("org");
+  }
+
+  function orgNodeHTML(n){
+    const a=state.agents.find(a=>a.id===n.agentId); if(!a)return "";
+    return `<div class="node org-node" data-node="${n.id}" data-agent="${a.id}" style="left:${n.x}px;top:${n.y}px">
+      <div class="port in"></div><div class="port out" title="Drag to connect"></div>
+      <div class="node-title">${esc(a.name)} · ${esc(a.role)}</div>
+      <div class="node-sub">${esc(a.authority)} · Decision ${a.weight}/100</div>
+      <div class="node-status">${esc(a.provider)} · ${esc(a.model)}</div>
+    </div>`;
+  }
+
+  function renderOrgInspector(agentId){
+    const a=state.agents.find(x=>x.id===agentId); if(!a)return;
+    const box=el("orgInspector");
+    box.innerHTML=`<h4>AGENT INSPECTOR</h4>
+      <div class="field"><label>Name</label><input id="oiName" value="${esc(a.name)}"></div>
+      <div class="field"><label>Role</label><input id="oiRole" value="${esc(a.role)}"></div>
+      <div class="field"><label>Authority Level</label><select id="oiAuthority">${["Specialist","Manager","Executive"].map(v=>`<option ${v===a.authority?"selected":""}>${v}</option>`).join("")}</select></div>
+      <div class="field"><label>Decision Influence: <b id="weightLabel">${a.weight}</b></label><input id="oiWeight" type="range" min="0" max="100" value="${a.weight}"></div>
+      <div class="field"><label>System Prompt</label><textarea id="oiPrompt">${esc(a.prompt||"")}</textarea></div>
+      <div class="checks"><label><input type="checkbox" data-perm="assign" ${a.permissions.includes("assign")?"checked":""}> Assign tasks</label>
+      <label><input type="checkbox" data-perm="review" ${a.permissions.includes("review")?"checked":""}> Review</label>
+      <label><input type="checkbox" data-perm="approve" ${a.permissions.includes("approve")?"checked":""}> Approve</label>
+      <label><input type="checkbox" data-perm="stop" ${a.permissions.includes("stop")?"checked":""}> Stop workflow</label>
+      <label><input type="checkbox" data-perm="override" ${a.permissions.includes("override")?"checked":""}> Override decisions</label></div>
+      <button class="primary" id="saveOrgAgent">Save Changes</button>`;
+    el("oiWeight").oninput=e=>el("weightLabel").textContent=e.target.value;
+    el("saveOrgAgent").onclick=()=>{
+      a.name=el("oiName").value.trim()||a.name;a.role=el("oiRole").value.trim()||a.role;a.authority=el("oiAuthority").value;
+      a.weight=+el("oiWeight").value;a.prompt=el("oiPrompt").value;
+      const keep=a.permissions.filter(p=>!["assign","review","approve","stop","override"].includes(p));
+      box.querySelectorAll("[data-perm]").forEach(c=>{if(c.checked)keep.push(c.dataset.perm)});a.permissions=keep;
+      save();toast("Agent updated");renderOrganization();
+    };
+  }
+
+  function openAddOrgNode(){
+    const existing=new Set(state.orgNodes.filter(n=>n.companyId===state.activeCompanyId).map(n=>n.agentId));
+    const choices=companyAgents().filter(a=>!existing.has(a.id));
+    if(!choices.length){toast("All company agents are already on the board.");return;}
+    openModal("Add Agent to Organization",`
+      <div class="field"><label>Agent</label><select name="agentId">${choices.map(a=>`<option value="${a.id}">${esc(a.name)} · ${esc(a.role)}</option>`).join("")}</select></div>`,
+      data=>{state.orgNodes.push({id:uid("on"),companyId:state.activeCompanyId,agentId:data.agentId,x:420,y:260});save();renderOrganization();}
+    );
+  }
+
+  function autoLayoutOrg(){
+    const nodes=state.orgNodes.filter(n=>n.companyId===state.activeCompanyId);
+    const edges=state.orgEdges.filter(e=>e.companyId===state.activeCompanyId);
+    const targets=new Set(edges.map(e=>e.targetAgentId));
+    const roots=nodes.filter(n=>!targets.has(n.agentId));
+    const root=roots[0]||nodes[0]; if(!root)return;
+    root.x=520;root.y=100;
+    const children=nodes.filter(n=>edges.some(e=>e.sourceAgentId===root.agentId&&e.targetAgentId===n.agentId));
+    children.forEach((n,i)=>{n.x=180+i*300;n.y=360});
+    const rest=nodes.filter(n=>n!==root&&!children.includes(n));
+    rest.forEach((n,i)=>{n.x=260+i*280;n.y=620});
+    save();renderOrganization();
+  }
+
+  function renderWorkflow(){
+    const w=activeWorkflow(); if(!w){view.innerHTML='<div class="empty">Create a project first.</div>';return;}
+    const nodes=state.workflowNodes.filter(n=>n.workflowId===w.id), edges=state.workflowEdges.filter(e=>e.workflowId===w.id);
+    view.innerHTML=`
+      <div class="board-shell">
+        <aside class="toolbox">
+          <h4>WORKFLOW TOOLS</h4>
+          <button class="tool" data-addwf="agent">🤖 Agent Step</button>
+          <button class="tool" data-addwf="decision">◆ Decision</button>
+          <button class="tool" data-addwf="approval">✓ Human Approval</button>
+          <button class="tool" data-addwf="loop">↻ Loop / Review</button>
+          <button class="tool" data-addwf="output">▣ Output</button>
+          <div class="sep"></div>
+          <button class="primary" style="width:100%;margin-bottom:8px" id="runWorkflow">▶ Run Workflow</button>
+          <button class="danger-btn" style="width:100%" id="stopWorkflow">■ Stop</button>
+          <div class="sep"></div>
+          <p class="hint">Drag nodes to arrange them. Drag from an output dot to another node to create an arrow. Select an edge to set its label, loop behavior, and retry limit.</p>
+        </aside>
+        <div class="canvas-wrap" id="wfCanvas">
+          <div class="canvas-world" id="wfWorld">
+            <svg class="edge-layer" id="wfEdges"></svg>
+            ${nodes.map(workflowNodeHTML).join("")}
+          </div>
+          <div class="canvas-controls"><button id="wfZoomOut">−</button><button id="wfZoomIn">＋</button><button id="wfCenter">⌂</button></div>
+        </div>
+        <aside class="inspector" id="wfInspector"><h4>STEP INSPECTOR</h4><p class="hint">Select a workflow node or arrow.</p></aside>
+      </div>`;
+    setupCanvas("wf",nodes,edges);
+    document.querySelectorAll("[data-addwf]").forEach(b=>b.onclick=()=>addWorkflowNode(b.dataset.addwf));
+    el("runWorkflow").onclick=()=>runWorkflow(w.id);
+    el("stopWorkflow").onclick=()=>{runtime.stop=true;toast("Workflow stopped.");};
+  }
+
+  function workflowNodeHTML(n){
+    const cls=n.type==="decision"?"decision":n.type==="approval"?"approval":n.type==="loop"?"loop-node":"";
+    return `<div class="node wf-node ${cls}" data-node="${n.id}" style="left:${n.x}px;top:${n.y}px">
+      <div class="port in"></div><div class="port out" title="Drag to connect"></div>
+      <div class="node-title">${esc(n.title)}</div>
+      <div class="node-sub">${esc(n.subtitle||n.type)}</div>
+      <div class="node-status" data-status="${n.id}">○ Waiting</div>
+    </div>`;
+  }
+
+  function addWorkflowNode(type){
+    const w=activeWorkflow(); if(!w)return;
+    const defaults={
+      agent:["Agent Step","Unassigned agent"],decision:["Decision","Evaluate previous output"],
+      approval:["Human Approval","Wait for human"],loop:["Review Loop","Check and give feedback"],output:["Output","Final deliverable"]
+    }[type]||["Step",type];
+    state.workflowNodes.push({id:uid("wn"),workflowId:w.id,type,title:defaults[0],subtitle:defaults[1],x:380+Math.random()*220,y:260+Math.random()*180});
+    save();renderWorkflow();
+  }
+
+  function renderWorkflowInspector(nodeId){
+    const n=state.workflowNodes.find(x=>x.id===nodeId); if(!n)return;
+    const agents=projectAgents();
+    el("wfInspector").innerHTML=`<h4>STEP INSPECTOR</h4>
+      <div class="field"><label>Step Type</label><input value="${esc(n.type)}" disabled></div>
+      <div class="field"><label>Title</label><input id="wiTitle" value="${esc(n.title)}"></div>
+      <div class="field"><label>Description / Instruction</label><textarea id="wiSubtitle">${esc(n.subtitle||"")}</textarea></div>
+      ${n.type==="agent"?`<div class="field"><label>Agent</label><select id="wiAgent"><option value="">Unassigned</option>${agents.map(a=>`<option value="${a.id}" ${a.id===n.agentId?"selected":""}>${esc(a.name)} · ${esc(a.role)}</option>`).join("")}</select></div>`:""}
+      <button class="primary" id="saveWfNode">Save Step</button>
+      <button class="danger-btn" style="margin-top:8px;width:100%" id="deleteWfNode">Delete Step</button>`;
+    el("saveWfNode").onclick=()=>{n.title=el("wiTitle").value.trim()||n.title;n.subtitle=el("wiSubtitle").value;if(n.type==="agent")n.agentId=el("wiAgent").value||null;save();renderWorkflow();};
+    el("deleteWfNode").onclick=()=>{state.workflowNodes=state.workflowNodes.filter(x=>x.id!==n.id);state.workflowEdges=state.workflowEdges.filter(e=>e.source!==n.id&&e.target!==n.id);save();renderWorkflow();};
+  }
+
+  function renderEdgeInspector(kind,edgeId){
+    const arr=kind==="org"?state.orgEdges:state.workflowEdges, e=arr.find(x=>x.id===edgeId); if(!e)return;
+    const box=el(kind==="org"?"orgInspector":"wfInspector");
+    if(kind==="org"){
+      const s=state.agents.find(a=>a.id===e.sourceAgentId),t=state.agents.find(a=>a.id===e.targetAgentId);
+      box.innerHTML=`<h4>RELATIONSHIP</h4><p><b>${esc(s?.name)}</b> → <b>${esc(t?.name)}</b></p>
+        <div class="field"><label>Relationship</label><select id="reType">${["manages","delegates","reviews","communicates"].map(v=>`<option ${v===e.type?"selected":""}>${v}</option>`).join("")}</select></div>
+        <div class="checks"><label><input id="reAssign" type="checkbox" ${e.assign?"checked":""}> Can assign tasks</label><label><input id="reReview" type="checkbox" ${e.review?"checked":""}> Can review</label><label><input id="reApprove" type="checkbox" ${e.approve?"checked":""}> Can approve</label></div>
+        <button class="primary" id="saveRel">Save Relationship</button><button class="danger-btn" id="delRel" style="width:100%;margin-top:8px">Delete Relationship</button>`;
+      el("saveRel").onclick=()=>{e.type=el("reType").value;e.assign=el("reAssign").checked;e.review=el("reReview").checked;e.approve=el("reApprove").checked;save();toast("Relationship updated");};
+      el("delRel").onclick=()=>{state.orgEdges=state.orgEdges.filter(x=>x.id!==e.id);save();renderOrganization();};
+    }else{
+      box.innerHTML=`<h4>ARROW / ROUTE</h4>
+        <div class="field"><label>Route Label</label><input id="eeLabel" value="${esc(e.label||"")}"></div>
+        <div class="checks"><label><input id="eeLoop" type="checkbox" ${e.loop?"checked":""}> Feedback / loop edge</label></div>
+        <div class="field"><label>Maximum loops / retries</label><input id="eeMax" type="number" min="1" max="20" value="${e.maxLoops||3}"></div>
+        <button class="primary" id="saveEdge">Save Arrow</button><button class="danger-btn" id="delEdge" style="width:100%;margin-top:8px">Delete Arrow</button>`;
+      el("saveEdge").onclick=()=>{e.label=el("eeLabel").value;e.loop=el("eeLoop").checked;e.maxLoops=Math.max(1,Math.min(20,+el("eeMax").value||3));save();renderWorkflow();};
+      el("delEdge").onclick=()=>{state.workflowEdges=state.workflowEdges.filter(x=>x.id!==e.id);save();renderWorkflow();};
+    }
+  }
+
+  const canvasState={org:{scale:1,tx:0,ty:0},wf:{scale:1,tx:0,ty:0}};
+  function resetCanvas(kind){canvasState[kind]={scale:1,tx:0,ty:0};applyTransform(kind);}
+  function applyTransform(kind){
+    const st=canvasState[kind], world=el(kind==="org"?"orgWorld":"wfWorld");
+    if(world)world.style.transform=`translate(${st.tx}px,${st.ty}px) scale(${st.scale})`;
+  }
+
+  function setupCanvas(kind,nodes,edges){
+    const canvas=el(kind==="org"?"orgCanvas":"wfCanvas"), world=el(kind==="org"?"orgWorld":"wfWorld"), svg=el(kind==="org"?"orgEdges":"wfEdges");
+    applyTransform(kind);
+    let pan=null, drag=null, connect=null;
+
+    const redraw=()=>{
+      svg.innerHTML="";
+      const nodeEls=[...world.querySelectorAll(".node")];
+      const map=Object.fromEntries(nodeEls.map(x=>[x.dataset.node,x]));
+      edges.forEach(e=>{
+        let sId,tId;
+        if(kind==="org"){
+          const sn=nodes.find(n=>n.agentId===e.sourceAgentId),tn=nodes.find(n=>n.agentId===e.targetAgentId);
+          sId=sn?.id;tId=tn?.id;
+        } else {sId=e.source;tId=e.target;}
+        const s=map[sId],t=map[tId]; if(!s||!t)return;
+        const x1=parseFloat(s.style.left)+s.offsetWidth, y1=parseFloat(s.style.top)+s.offsetHeight/2;
+        const x2=parseFloat(t.style.left), y2=parseFloat(t.style.top)+t.offsetHeight/2;
+        const bend=Math.max(80,Math.abs(x2-x1)*.45);
+        const path=document.createElementNS("http://www.w3.org/2000/svg","path");
+        path.setAttribute("d",`M ${x1} ${y1} C ${x1+bend} ${y1}, ${x2-bend} ${y2}, ${x2} ${y2}`);
+        if(e.loop)path.classList.add("loop");
+        path.style.pointerEvents="stroke";path.dataset.edge=e.id;path.dataset.kind=kind;
+        path.addEventListener("pointerdown",ev=>{ev.stopPropagation();renderEdgeInspector(kind,e.id);});
+        svg.appendChild(path);
+        if(e.label){
+          const text=document.createElementNS("http://www.w3.org/2000/svg","text");
+          text.setAttribute("x",(x1+x2)/2);text.setAttribute("y",(y1+y2)/2-8);text.setAttribute("fill",e.loop?"#fbbf24":"#aab2c5");text.setAttribute("font-size","12");text.textContent=e.label;svg.appendChild(text);
+        }
+      });
+      if(connect){
+        const s=map[connect.nodeId]; if(s){
+          const x1=parseFloat(s.style.left)+s.offsetWidth,y1=parseFloat(s.style.top)+s.offsetHeight/2;
+          const p=document.createElementNS("http://www.w3.org/2000/svg","path");
+          p.setAttribute("d",`M ${x1} ${y1} C ${x1+90} ${y1}, ${connect.x-90} ${connect.y}, ${connect.x} ${connect.y}`);p.setAttribute("stroke","#7c68ff");p.setAttribute("stroke-width","3");p.setAttribute("fill","none");svg.appendChild(p);
+        }
+      }
+    };
+    redraw();
+
+    world.querySelectorAll(".node").forEach(node=>{
+      node.addEventListener("pointerdown",e=>{
+        if(e.target.classList.contains("port"))return;
+        e.stopPropagation();world.querySelectorAll(".node").forEach(n=>n.classList.remove("selected"));node.classList.add("selected");
+        const id=node.dataset.node;
+        if(kind==="org")renderOrgInspector(node.dataset.agent);else renderWorkflowInspector(id);
+        drag={id,startX:e.clientX,startY:e.clientY,ox:parseFloat(node.style.left),oy:parseFloat(node.style.top),node};
+        node.setPointerCapture(e.pointerId);
+      });
+      const out=node.querySelector(".port.out");
+      out.addEventListener("pointerdown",e=>{e.stopPropagation();connect={nodeId:node.dataset.node,x:0,y:0};out.setPointerCapture(e.pointerId);});
+      out.addEventListener("pointermove",e=>{
+        if(!connect)return;const rect=world.getBoundingClientRect(),st=canvasState[kind];
+        connect.x=(e.clientX-rect.left)/st.scale;connect.y=(e.clientY-rect.top)/st.scale;redraw();
+      });
+      out.addEventListener("pointerup",e=>{
+        if(!connect)return;
+        const target=document.elementFromPoint(e.clientX,e.clientY)?.closest(".node");
+        if(target&&target.dataset.node!==connect.nodeId){
+          if(kind==="org"){
+            const sn=nodes.find(n=>n.id===connect.nodeId),tn=nodes.find(n=>n.id===target.dataset.node);
+            if(sn&&tn&&!state.orgEdges.some(x=>x.companyId===state.activeCompanyId&&x.sourceAgentId===sn.agentId&&x.targetAgentId===tn.agentId))
+              state.orgEdges.push({id:uid("oe"),companyId:state.activeCompanyId,sourceAgentId:sn.agentId,targetAgentId:tn.agentId,type:"manages",assign:true,review:false,approve:false});
+          }else{
+            const w=activeWorkflow();
+            if(!state.workflowEdges.some(x=>x.workflowId===w.id&&x.source===connect.nodeId&&x.target===target.dataset.node))
+              state.workflowEdges.push({id:uid("we"),workflowId:w.id,source:connect.nodeId,target:target.dataset.node,label:""});
+          }
+          save();
+        }
+        connect=null; kind==="org"?renderOrganization():renderWorkflow();
+      });
+    });
+
+    world.addEventListener("pointermove",e=>{
+      if(drag){
+        const st=canvasState[kind], dx=(e.clientX-drag.startX)/st.scale,dy=(e.clientY-drag.startY)/st.scale;
+        drag.node.style.left=Math.max(0,drag.ox+dx)+"px";drag.node.style.top=Math.max(0,drag.oy+dy)+"px";redraw();
+      }
+    });
+    world.addEventListener("pointerup",()=>{
+      if(drag){
+        const n=nodes.find(x=>x.id===drag.id);if(n){n.x=parseFloat(drag.node.style.left);n.y=parseFloat(drag.node.style.top);save();}
+        drag=null;
+      }
+    });
+
+    canvas.addEventListener("pointerdown",e=>{
+      if(e.target!==canvas)return;pan={x:e.clientX,y:e.clientY,tx:canvasState[kind].tx,ty:canvasState[kind].ty};canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener("pointermove",e=>{if(!pan)return;canvasState[kind].tx=pan.tx+e.clientX-pan.x;canvasState[kind].ty=pan.ty+e.clientY-pan.y;applyTransform(kind);});
+    canvas.addEventListener("pointerup",()=>pan=null);
+    canvas.addEventListener("wheel",e=>{e.preventDefault();const st=canvasState[kind];st.scale=Math.max(.4,Math.min(1.8,st.scale*(e.deltaY>0?.9:1.1)));applyTransform(kind);},{passive:false});
+    el(kind==="org"?"orgZoomIn":"wfZoomIn").onclick=()=>{canvasState[kind].scale=Math.min(1.8,canvasState[kind].scale+.1);applyTransform(kind);};
+    el(kind==="org"?"orgZoomOut":"wfZoomOut").onclick=()=>{canvasState[kind].scale=Math.max(.4,canvasState[kind].scale-.1);applyTransform(kind);};
+    el(kind==="org"?"orgCenter":"wfCenter").onclick=()=>resetCanvas(kind);
+  }
+
+  const runtime={stop:false,timers:[]};
+  function runWorkflow(workflowId){
+    runtime.stop=false;runtime.timers.forEach(clearTimeout);runtime.timers=[];
+    const nodes=state.workflowNodes.filter(n=>n.workflowId===workflowId);
+    if(!nodes.length){toast("Add workflow steps first.");return;}
+    toast("Simulated workflow started.");
+    nodes.forEach((n,i)=>{
+      const t=setTimeout(()=>{
+        if(runtime.stop)return;
+        document.querySelectorAll("[data-status]").forEach(x=>{if(x.dataset.status===n.id){x.textContent="● Running";x.style.color="#4ade80";}});
+        const done=setTimeout(()=>{if(runtime.stop)return;const x=document.querySelector(`[data-status="${n.id}"]`);if(x){x.textContent="✓ Completed";x.style.color="#48c9ff";}},650);
+        runtime.timers.push(done);
+      },i*900);runtime.timers.push(t);
+    });
+  }
+
+  function openModal(title,fields,onSubmit){
+    el("modalTitle").textContent=title;
+    el("modalForm").innerHTML=fields+`<div class="modal-actions"><button type="button" class="secondary" id="cancelModal">Cancel</button><button class="primary" type="submit">Save</button></div>`;
+    el("modalBackdrop").classList.add("open");
+    el("cancelModal").onclick=closeModal;
+    el("modalForm").onsubmit=e=>{e.preventDefault();const data=Object.fromEntries(new FormData(e.currentTarget).entries());onSubmit(data);closeModal();};
+  }
+  function closeModal(){el("modalBackdrop").classList.remove("open");}
+
+  function createCompany(){
+    openModal("Create Company",`
+      <div class="field"><label>Company Name</label><input required name="name" placeholder="e.g. Nova Labs"></div>
+      <div class="field"><label>Icon / Emoji</label><input name="icon" value="🏢"></div>
+      <div class="field"><label>Description</label><input name="description" value="AI Organization"></div>`,
+      d=>{const c={id:uid("c"),name:d.name.trim(),icon:d.icon||"🏢",description:d.description||"AI Organization"};state.companies.push(c);state.activeCompanyId=c.id;state.activeProjectId=null;save();render();}
+    );
+  }
+  function createProject(){
+    openModal("New Project",`
+      <div class="field"><label>Project Name</label><input required name="name" placeholder="e.g. Product Launch"></div>
+      <div class="field"><label>Description</label><textarea name="description" placeholder="What is this project trying to accomplish?"></textarea></div>`,
+      d=>{const p={id:uid("p"),companyId:state.activeCompanyId,name:d.name.trim(),description:d.description};state.projects.push(p);state.activeProjectId=p.id;state.activeView="chat";save();render();}
+    );
+  }
+  function hireAgent(){
+    openModal("Hire AI Employee",`
+      <div class="field"><label>Name</label><input required name="name" placeholder="e.g. Alex"></div>
+      <div class="field"><label>Role</label><input required name="role" placeholder="e.g. Engineer"></div>
+      <div class="field"><label>Provider</label><select name="provider"><option>OpenAI</option><option>Anthropic</option><option>Google</option><option>OpenRouter</option></select></div>
+      <div class="field"><label>Model</label><input name="model" placeholder="Model name"></div>
+      <div class="field"><label>System Prompt</label><textarea name="prompt" placeholder="Define this employee's responsibilities…"></textarea></div>`,
+      d=>{const a={id:uid("a"),companyId:state.activeCompanyId,name:d.name.trim(),role:d.role.trim(),provider:d.provider,model:d.model||"Default",prompt:d.prompt,authority:"Specialist",weight:50,permissions:["communicate"]};state.agents.push(a);state.orgNodes.push({id:uid("on"),companyId:state.activeCompanyId,agentId:a.id,x:400,y:260});const p=project();if(p)state.projectAgents.push({projectId:p.id,agentId:a.id});save();render();}
+    );
+  }
+  function editAgent(agentId){
+    const a=state.agents.find(x=>x.id===agentId);if(!a)return;
+    openModal("Edit AI Employee",`
+      <div class="field"><label>Name</label><input required name="name" value="${esc(a.name)}"></div>
+      <div class="field"><label>Role</label><input required name="role" value="${esc(a.role)}"></div>
+      <div class="field"><label>Provider</label><select name="provider">${["OpenAI","Anthropic","Google","OpenRouter"].map(x=>`<option ${x===a.provider?"selected":""}>${x}</option>`).join("")}</select></div>
+      <div class="field"><label>Model</label><input name="model" value="${esc(a.model)}"></div>
+      <div class="field"><label>System Prompt</label><textarea name="prompt">${esc(a.prompt||"")}</textarea></div>
+      <div class="field"><label>Assign to current project?</label><select name="assign"><option value="yes">Yes</option><option value="no">No</option></select></div>`,
+      d=>{a.name=d.name.trim();a.role=d.role.trim();a.provider=d.provider;a.model=d.model;a.prompt=d.prompt;const p=project();if(p){const exists=state.projectAgents.some(x=>x.projectId===p.id&&x.agentId===a.id);if(d.assign==="yes"&&!exists)state.projectAgents.push({projectId:p.id,agentId:a.id});if(d.assign==="no"&&exists)state.projectAgents=state.projectAgents.filter(x=>!(x.projectId===p.id&&x.agentId===a.id));}save();render();}
+    );
+  }
+
+  document.addEventListener("click",e=>{
+    const c=e.target.closest("[data-company]");if(c){state.activeCompanyId=c.dataset.company;const p=state.projects.find(p=>p.companyId===state.activeCompanyId);state.activeProjectId=p?.id||null;state.activeView="chat";render();return;}
+    const p=e.target.closest("[data-project]");if(p){state.activeProjectId=p.dataset.project;state.activeView="chat";render();return;}
+    const a=e.target.closest("[data-agent]");if(a){editAgent(a.dataset.agent);return;}
+    const v=e.target.closest("[data-view]");if(v){state.activeView=v.dataset.view;render();return;}
+  });
+  el("addCompanyBtn").onclick=createCompany;
+  el("addProjectBtn").onclick=createProject;
+  el("hireAgentBtn").onclick=hireAgent;
+  el("modalBackdrop").addEventListener("pointerdown",e=>{if(e.target===el("modalBackdrop"))closeModal();});
+
+  render();
+})();
+</script>
+</body>
+</html>
