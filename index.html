@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AgentHub Prototype v0.2</title>
+  <title>AgentHub v0.5 - Supabase Company Integration</title>
   <style>
     :root{
       --bg:#0b0d14;--panel:#121620;--panel2:#181d29;--panel3:#202636;
@@ -104,7 +104,7 @@
     .auth-logo{width:54px;height:54px;border-radius:16px;display:grid;place-items:center;background:linear-gradient(145deg,var(--purple),#5140c8);font-weight:900;margin-bottom:18px}
     .auth-card h1{font-size:24px;margin:0 0 6px}.auth-card>p{color:var(--muted);margin:0 0 22px;font-size:13px}
     .auth-card .field input{height:44px}.auth-submit{width:100%;height:44px;margin-top:4px}
-    .auth-switch{text-align:center;color:var(--muted);font-size:12px;margin-top:16px}.auth-switch button{border:0;background:none;color:var(--purple2);padding:0}
+    .auth-switch{text-align:center;color:var(--muted);font-size:12px;margin-top:16px}.auth-switch button,.auth-link{border:0;background:none;color:var(--purple2);padding:0;cursor:pointer}.auth-link-row{text-align:right;margin:-5px 0 12px;font-size:12px}.auth-link:hover,.auth-switch button:hover{text-decoration:underline}
     .auth-message{display:none;margin:12px 0 0;padding:10px;border-radius:8px;font-size:12px;line-height:1.45}.auth-message.show{display:block}.auth-message.error{background:#28151b;color:#ff9aad;border:1px solid #6a3340}.auth-message.success{background:#13251b;color:#8ef0ad;border:1px solid #315c40}
     .user-menu{display:flex;align-items:center;gap:8px}.user-email{font-size:11px;color:var(--muted);max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   </style>
@@ -117,7 +117,9 @@
     <p id="authSubtitle">Sign in to your AgentHub workspace.</p>
     <form id="authForm">
       <div class="field"><label>Email</label><input id="authEmail" type="email" autocomplete="email" required placeholder="you@example.com"></div>
-      <div class="field"><label>Password</label><input id="authPassword" type="password" autocomplete="current-password" required minlength="6" placeholder="••••••••"></div>
+      <div class="field" id="passwordField"><label>Password</label><input id="authPassword" type="password" autocomplete="current-password" required minlength="6" placeholder="••••••••"></div>
+      <div class="field" id="confirmPasswordField" style="display:none"><label>Confirm Password</label><input id="authPasswordConfirm" type="password" autocomplete="new-password" minlength="6" placeholder="••••••••"></div>
+      <div class="auth-link-row" id="forgotRow"><button class="auth-link" type="button" id="forgotPasswordBtn">Forgot password?</button></div>
       <button class="primary auth-submit" id="authSubmit" type="submit">Sign In</button>
       <div class="auth-message" id="authMessage"></div>
     </form>
@@ -194,6 +196,8 @@
   let currentUser = null;
 
   const STORAGE_KEY = "agenthub-prototype-v02";
+  // v0.5: companies are authoritative in Supabase; other prototype data remains local for now.
+  let companiesLoadedFromSupabase = false;
   const uid = (p="id") => p + "_" + Math.random().toString(36).slice(2,9);
   const clone = o => JSON.parse(JSON.stringify(o));
   const now = () => new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
@@ -285,11 +289,52 @@
   };
   const esc = s => String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
 
+  async function loadCompaniesFromSupabase(){
+    if(!currentUser) return;
+    const {data,error}=await supabaseClient
+      .from("companies")
+      .select("id,name,description,icon,created_at,updated_at")
+      .order("created_at",{ascending:true});
+    if(error) throw error;
+
+    const previousCompanyId=state.activeCompanyId;
+    state.companies=(data||[]).map(c=>({
+      id:c.id,
+      name:c.name,
+      description:c.description||"AI Organization",
+      icon:c.icon||"🏢"
+    }));
+    companiesLoadedFromSupabase=true;
+
+    if(state.companies.some(c=>c.id===previousCompanyId)){
+      state.activeCompanyId=previousCompanyId;
+    }else{
+      state.activeCompanyId=state.companies[0]?.id||null;
+    }
+
+    // Projects/agents/messages are intentionally still local in v0.5.
+    // Do not attach old demo data to a real Supabase company UUID.
+    state.activeProjectId=state.projects.find(p=>p.companyId===state.activeCompanyId)?.id||null;
+    save();
+  }
+
+  async function refreshCompanies(){
+    try{
+      await loadCompaniesFromSupabase();
+      render();
+    }catch(err){
+      console.error("Failed to load companies",err);
+      toast("Could not load companies: "+(err?.message||"Unknown error"));
+    }
+  }
+
   function renderShell(){
     const c=company();
     el("companyName").textContent=c?.name || "AgentHub";
     el("companyMeta").textContent=c?.description || "AI Organization";
     el("companyRail").innerHTML=state.companies.map(c=>`<button class="company-icon ${c.id===state.activeCompanyId?"active":""}" data-company="${c.id}" title="${esc(c.name)}">${esc(c.icon||"🏢")}</button>`).join("");
+    el("addProjectBtn").disabled=!c;
+    el("hireAgentBtn").disabled=!c;
     const projects=state.projects.filter(p=>p.companyId===state.activeCompanyId);
     if(!projects.some(p=>p.id===state.activeProjectId) && projects[0]) state.activeProjectId=projects[0].id;
     el("projectList").innerHTML=projects.map(p=>`<button class="nav-item ${p.id===state.activeProjectId&&state.activeView==="chat"?"active":""}" data-project="${p.id}"># ${esc(p.name)}</button>`).join("");
@@ -671,7 +716,7 @@
     el("modalForm").innerHTML=fields+`<div class="modal-actions"><button type="button" class="secondary" id="cancelModal">Cancel</button><button class="primary" type="submit">Save</button></div>`;
     el("modalBackdrop").classList.add("open");
     el("cancelModal").onclick=closeModal;
-    el("modalForm").onsubmit=e=>{e.preventDefault();const data=Object.fromEntries(new FormData(e.currentTarget).entries());onSubmit(data);closeModal();};
+    el("modalForm").onsubmit=async e=>{e.preventDefault();const data=Object.fromEntries(new FormData(e.currentTarget).entries());const submit=e.currentTarget.querySelector('button[type="submit"]');submit.disabled=true;try{await onSubmit(data);closeModal();}catch(err){console.error(err);toast(err?.message||"Action failed");}finally{submit.disabled=false;}};
   }
   function closeModal(){el("modalBackdrop").classList.remove("open");}
 
@@ -680,10 +725,31 @@
       <div class="field"><label>Company Name</label><input required name="name" placeholder="e.g. Nova Labs"></div>
       <div class="field"><label>Icon / Emoji</label><input name="icon" value="🏢"></div>
       <div class="field"><label>Description</label><input name="description" value="AI Organization"></div>`,
-      d=>{const c={id:uid("c"),name:d.name.trim(),icon:d.icon||"🏢",description:d.description||"AI Organization"};state.companies.push(c);state.activeCompanyId=c.id;state.activeProjectId=null;save();render();}
+      async d=>{
+        try{
+          const name=d.name.trim();
+          if(!name) throw new Error("Company name cannot be empty.");
+          const {data,error}=await supabaseClient.rpc("create_company",{
+            company_name:name,
+            company_description:d.description?.trim()||null,
+            company_icon:d.icon?.trim()||null
+          });
+          if(error) throw error;
+          await loadCompaniesFromSupabase();
+          state.activeCompanyId=data;
+          state.activeProjectId=null;
+          save();
+          render();
+          toast("Company created in Supabase.");
+        }catch(err){
+          console.error("Create company failed",err);
+          toast("Create company failed: "+(err?.message||"Unknown error"));
+        }
+      }
     );
   }
   function createProject(){
+    if(!state.activeCompanyId){toast("Create a company first.");return;}
     openModal("New Project",`
       <div class="field"><label>Project Name</label><input required name="name" placeholder="e.g. Product Launch"></div>
       <div class="field"><label>Description</label><textarea name="description" placeholder="What is this project trying to accomplish?"></textarea></div>`,
@@ -691,6 +757,7 @@
     );
   }
   function hireAgent(){
+    if(!state.activeCompanyId){toast("Create a company first.");return;}
     openModal("Hire AI Employee",`
       <div class="field"><label>Name</label><input required name="name" placeholder="e.g. Alex"></div>
       <div class="field"><label>Role</label><input required name="role" placeholder="e.g. Engineer"></div>
@@ -726,30 +793,58 @@
 
   const showAuthMessage=(message,type="error")=>{const box=el("authMessage");box.textContent=message;box.className=`auth-message show ${type}`;};
   const clearAuthMessage=()=>{const box=el("authMessage");box.textContent="";box.className="auth-message";};
+
   const setAuthMode=mode=>{
     authMode=mode; clearAuthMessage();
-    const signup=mode==="signup";
-    el("authTitle").textContent=signup?"Create your account":"Welcome back";
-    el("authSubtitle").textContent=signup?"Create an AgentHub account with your email.":"Sign in to your AgentHub workspace.";
-    el("authSubmit").textContent=signup?"Create Account":"Sign In";
-    el("authSwitchText").textContent=signup?"Already have an account?":"New to AgentHub?";
-    el("authSwitchBtn").textContent=signup?"Sign in":"Create account";
-    el("authPassword").autocomplete=signup?"new-password":"current-password";
+    const signup=mode==="signup", forgot=mode==="forgot", recovery=mode==="recovery";
+    el("authTitle").textContent=signup?"Create your account":forgot?"Reset your password":recovery?"Choose a new password":"Welcome back";
+    el("authSubtitle").textContent=signup?"Create an AgentHub account with your email.":forgot?"Enter your email and we’ll send you a secure reset link.":recovery?"Enter and confirm your new password.":"Sign in to your AgentHub workspace.";
+    el("authSubmit").textContent=signup?"Create Account":forgot?"Send Reset Email":recovery?"Update Password":"Sign In";
+    el("passwordField").style.display=forgot?"none":"block";
+    el("authPassword").required=!forgot;
+    el("confirmPasswordField").style.display=(signup||recovery)?"block":"none";
+    el("authPasswordConfirm").required=signup||recovery;
+    el("forgotRow").style.display=mode==="signin"?"block":"none";
+    el("authEmail").closest(".field").style.display=recovery?"none":"block";
+    el("authEmail").required=!recovery;
+    el("authPassword").autocomplete=(signup||recovery)?"new-password":"current-password";
+    el("authSwitchText").textContent=signup?"Already have an account?":forgot||recovery?"Back to login":"New to AgentHub?";
+    el("authSwitchBtn").textContent=signup?"Sign in":forgot||recovery?"Sign in":"Create account";
   };
-  const showApp=user=>{currentUser=user;el("authScreen").classList.add("hidden");el("app").style.display="grid";el("userEmail").textContent=user?.email||"";render();};
+
+  const showApp=async user=>{currentUser=user;el("authScreen").classList.add("hidden");el("app").style.display="grid";el("userEmail").textContent=user?.email||"";try{await loadCompaniesFromSupabase();}catch(err){console.error("Company load failed",err);toast("Company load failed: "+(err?.message||"Unknown error"));state.companies=[];state.activeCompanyId=null;}render();};
   const showLogin=()=>{currentUser=null;el("app").style.display="none";el("authScreen").classList.remove("hidden");setAuthMode("signin");};
 
-  el("authSwitchBtn").onclick=()=>setAuthMode(authMode==="signin"?"signup":"signin");
+  el("authSwitchBtn").onclick=()=>{
+    if(authMode==="signin")setAuthMode("signup");
+    else setAuthMode("signin");
+  };
+  el("forgotPasswordBtn").onclick=()=>setAuthMode("forgot");
+
   el("authForm").onsubmit=async e=>{
     e.preventDefault(); clearAuthMessage();
-    const email=el("authEmail").value.trim(), password=el("authPassword").value;
+    const email=el("authEmail").value.trim();
+    const password=el("authPassword").value;
+    const confirm=el("authPasswordConfirm").value;
     el("authSubmit").disabled=true;
     try{
       if(authMode==="signup"){
+        if(password!==confirm)throw new Error("Passwords do not match.");
         const {data,error}=await supabaseClient.auth.signUp({email,password});
         if(error)throw error;
         if(data.session&&data.user){showApp(data.user);return;}
         showAuthMessage("Account created. Check your email and confirm your address, then sign in.","success");
+      }else if(authMode==="forgot"){
+        const redirectTo=window.location.href.split("#")[0].split("?")[0];
+        const {error}=await supabaseClient.auth.resetPasswordForEmail(email,{redirectTo});
+        if(error)throw error;
+        showAuthMessage("If an account exists for this email, a password reset link has been sent. Check your inbox.","success");
+      }else if(authMode==="recovery"){
+        if(password!==confirm)throw new Error("Passwords do not match.");
+        const {error}=await supabaseClient.auth.updateUser({password});
+        if(error)throw error;
+        showAuthMessage("Password updated successfully. You can now use your new password.","success");
+        setTimeout(()=>showApp(currentUser),700);
       }else{
         const {data,error}=await supabaseClient.auth.signInWithPassword({email,password});
         if(error)throw error;
@@ -758,11 +853,21 @@
     }catch(err){showAuthMessage(err?.message||"Authentication failed.");}
     finally{el("authSubmit").disabled=false;}
   };
+
   el("signOutBtn").onclick=async()=>{await supabaseClient.auth.signOut();showLogin();};
 
-  supabaseClient.auth.onAuthStateChange((_event,session)=>{
-    if(session?.user){if(!currentUser||currentUser.id!==session.user.id)showApp(session.user);}
-    else if(currentUser)showLogin();
+  supabaseClient.auth.onAuthStateChange((event,session)=>{
+    if(event==="PASSWORD_RECOVERY"){
+      currentUser=session?.user||null;
+      el("app").style.display="none";
+      el("authScreen").classList.remove("hidden");
+      setAuthMode("recovery");
+      return;
+    }
+    if(session?.user){
+      currentUser=session.user;
+      if(!["forgot","recovery"].includes(authMode))showApp(session.user);
+    }else if(currentUser){showLogin();}
   });
 
   (async()=>{
