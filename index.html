@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AgentHub v0.5 - Supabase Company Integration</title>
+  <title>AgentHub v0.6 - Real AI Agent MVP</title>
   <style>
     :root{
       --bg:#0b0d14;--panel:#121620;--panel2:#181d29;--panel3:#202636;
@@ -387,30 +387,61 @@
           <h4>PROJECT STATUS</h4>
           <div class="stat"><span>Workflow</span><strong>${activeWorkflow()?.name||"Not configured"}</strong></div>
           <div class="stat"><span>Agents</span><strong>${agents.length}</strong></div>
-          <div class="stat"><span>Prototype storage</span><strong>Local persistence ✓</strong></div>
-          <p class="hint" style="margin-top:14px">Supabase adapter can replace local storage later without changing the product model.</p>
+          <div class="stat"><span>AI mode</span><strong>Live API · Single agent</strong></div>
+          <div class="stat"><span>Chat storage</span><strong>Local browser only</strong></div>
+          <p class="hint" style="margin-top:14px">Real AI requires the agent-chat Edge Function and OPENAI_API_KEY secret. Each send makes a billable API call.</p>
         </aside>
       </div>`;
     const box=el("messages"); box.scrollTop=box.scrollHeight;
+    if(aiBusy){const send=el("sendBtn");send.disabled=true;send.textContent="Thinking…";}
     el("sendBtn").onclick=sendMessage;
     el("messageInput").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}});
     el("mentionBtn").onclick=()=>{const a=agents[0]; if(a){el("messageInput").value=`@${a.name} `;el("messageInput").focus();}};
     el("broadcastBtn").onclick=()=>{el("messageInput").value="@team ";el("messageInput").focus();};
-    el("stopAllBtn").onclick=()=>toast("All simulated agent activity stopped.");
+    el("stopAllBtn").onclick=()=>{aiRequestId++;aiBusy=false;renderChat();toast("Stopped waiting for AI. A request already sent may still incur cost.");};
   }
 
-  function sendMessage(){
-    const input=el("messageInput"), text=input.value.trim(); if(!text)return;
-    const p=project();
-    state.messages.push({id:uid("m"),projectId:p.id,senderType:"human",senderName:"You",content:text,time:now()});
-    input.value=""; save(); renderChat();
-    const agents=projectAgents(); const responder=agents.find(a=>a.role==="CEO")||agents[0];
-    if(responder){
-      setTimeout(()=>{
-        state.messages.push({id:uid("m"),projectId:p.id,senderType:"agent",agentId:responder.id,senderName:responder.name,
-          content:`Received. I’ll coordinate this inside ${p.name}. (Simulated response — real provider orchestration comes next.)`,time:now()});
-        save(); if(state.activeView==="chat"&&project()?.id===p.id)renderChat();
-      },550);
+  // Real AI MVP: one assigned agent replies through a protected Supabase Edge Function.
+  // Projects, agents and messages are still stored in this browser's localStorage.
+  let aiBusy=false;
+  let aiRequestId=0;
+  async function sendMessage(){
+    if(aiBusy){toast("Wait for the current AI reply.");return;}
+    const input=el("messageInput"), text=input?.value.trim();
+    if(!text)return;
+    if(text.length>4000){toast("Message is too long (max 4,000 characters).");return;}
+    const p=project(), c=company();
+    if(!p||!c){toast("Create a company and project first.");return;}
+    const agents=projectAgents();
+    const mentioned=agents.find(a=>text.toLowerCase().includes("@"+a.name.toLowerCase()));
+    const responder=mentioned||agents.find(a=>a.role.toLowerCase()==="ceo")||agents[0];
+    if(!responder){toast("Hire an AI Employee for this project first.");return;}
+    const companyId=c.id, projectId=p.id;
+    state.messages.push({id:uid("m"),projectId,senderType:"human",senderName:"You",content:text,time:now()});
+    input.value=""; save();
+    aiBusy=true;
+    const requestId=++aiRequestId;
+    renderChat();
+    try{
+      const history=state.messages.filter(m=>m.projectId===projectId).slice(-12).map(m=>({
+        role:m.senderType==="human"?"user":"assistant",content:String(m.content).slice(0,4000)
+      }));
+      const {data,error}=await supabaseClient.functions.invoke("agent-chat",{
+        body:{company_id:companyId,agent:{name:responder.name,role:responder.role,prompt:responder.prompt},messages:history}
+      });
+      if(requestId!==aiRequestId)return;
+      if(error){
+        let detail=error.message;
+        try{const body=await error.context?.json();if(body?.error)detail=body.error;}catch{}
+        throw new Error(detail||"Edge Function request failed");
+      }
+      if(!data?.reply)throw new Error(data?.error||"AI returned no reply");
+      state.messages.push({id:uid("m"),projectId,senderType:"agent",agentId:responder.id,senderName:responder.name,content:data.reply,time:now()});
+      save();
+    }catch(err){
+      if(requestId===aiRequestId){console.error("AI request failed",err);toast("AI error: "+(err?.message||"Unknown error"));}
+    }finally{
+      if(requestId===aiRequestId){aiBusy=false;if(state.activeView==="chat")renderChat();}
     }
   }
 
