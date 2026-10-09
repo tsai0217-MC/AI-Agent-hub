@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AgentHub v0.6 - Real AI Agent MVP</title>
+  <title>AgentHub v0.7 - Supabase Data Integration</title>
   <style>
     :root{
       --bg:#0b0d14;--panel:#121620;--panel2:#181d29;--panel3:#202636;
@@ -195,8 +195,9 @@
   let authMode = "signin";
   let currentUser = null;
 
-  const STORAGE_KEY = "agenthub-prototype-v02";
-  // v0.5: companies are authoritative in Supabase; other prototype data remains local for now.
+  const STORAGE_KEY = "agenthub-v07-ui";
+  const LEGACY_KEY = "agenthub-prototype-v02";
+  // v0.7: Supabase is authoritative for workspace records.
   let companiesLoadedFromSupabase = false;
   const uid = (p="id") => p + "_" + Math.random().toString(36).slice(2,9);
   const clone = o => JSON.parse(JSON.stringify(o));
@@ -265,10 +266,87 @@
     ]
   };
 
-  let state;
-  try { state = JSON.parse(localStorage.getItem(STORAGE_KEY)) || clone(seed); }
-  catch { state = clone(seed); }
-  const save = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  // v0.7: localStorage stores UI preferences ONLY, never workspace data.
+  const legacyBackup = localStorage.getItem(LEGACY_KEY);
+  const uiState = (()=>{try{return JSON.parse(localStorage.getItem(STORAGE_KEY))||{}}catch{return {}}})();
+  let state = {activeCompanyId:uiState.activeCompanyId||null,activeProjectId:uiState.activeProjectId||null,
+    activeView:uiState.activeView||"chat",companies:[],projects:[],agents:[],projectAgents:[],messages:[],
+    orgNodes:[],orgEdges:[],workflows:[],workflowNodes:[],workflowEdges:[]};
+  const save = () => localStorage.setItem(STORAGE_KEY,JSON.stringify({
+    activeCompanyId:state.activeCompanyId,activeProjectId:state.activeProjectId,activeView:state.activeView
+  }));
+  let workspaceLoadSeq=0;
+  let boardSaveTimer=null;
+  let boardDirty=false;
+  const uuid = () => crypto.randomUUID();
+  const throwIfError = result => {if(result.error)throw result.error;return result.data;};
+  function notifyError(label,error){console.error(label,error);toast(label+": "+(error?.message||"Unknown error"));}
+  function dbProject(row){return {id:row.id,companyId:row.company_id,name:row.name,description:row.description||""};}
+  function dbAgent(row){return {id:row.id,companyId:row.company_id,name:row.name,role:row.role,
+    provider:row.provider||"OpenAI",model:row.model||"",prompt:row.system_prompt||"",
+    authority:row.authority||"Specialist",weight:row.decision_weight??50,
+    permissions:Array.isArray(row.permissions)?row.permissions:[]};}
+  function dbMessage(row){const a=state.agents.find(x=>x.id===row.sender_agent_id);
+    return {id:row.id,projectId:row.project_id,senderType:row.sender_type==="user"?"human":row.sender_type,
+      agentId:row.sender_agent_id,senderName:row.sender_type==="user"?"You":a?.name||"System",
+      content:row.content,time:new Date(row.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})};}
+  async function loadWorkspace(){
+    const seq=++workspaceLoadSeq;
+    const companyIds=state.companies.map(c=>c.id);
+    if(!companyIds.length){state.projects=[];state.agents=[];state.projectAgents=[];state.messages=[];
+      state.orgNodes=[];state.orgEdges=[];state.workflows=[];state.workflowNodes=[];state.workflowEdges=[];render();return;}
+    const [pr,ag,pa,ms,boards]=await Promise.all([
+      supabaseClient.from("projects").select("*").in("company_id",companyIds).order("created_at"),
+      supabaseClient.from("agents").select("*").in("company_id",companyIds).order("created_at"),
+      supabaseClient.from("project_agents").select("project_id,agent_id"),
+      supabaseClient.from("messages").select("*").order("created_at",{ascending:true}).limit(1000),
+      supabaseClient.from("workspace_documents").select("company_id,document_key,document")
+        .in("company_id",companyIds)
+    ]);
+    for(const result of [pr,ag,pa,ms,boards])throwIfError(result);
+    if(seq!==workspaceLoadSeq)return;
+    state.projects=pr.data.map(dbProject);state.agents=ag.data.map(dbAgent);
+    const projectIds=new Set(state.projects.map(p=>p.id));
+    const agentIds=new Set(state.agents.map(a=>a.id));
+    state.projectAgents=pa.data.filter(x=>projectIds.has(x.project_id)&&agentIds.has(x.agent_id))
+      .map(x=>({projectId:x.project_id,agentId:x.agent_id}));
+    state.messages=ms.data.filter(x=>projectIds.has(x.project_id)).map(dbMessage);
+    for(const key of ["orgNodes","orgEdges","workflows","workflowNodes","workflowEdges"])state[key]=[];
+    for(const row of boards.data){const d=row.document||{};
+      if(row.document_key==="organization"){
+        state.orgNodes.push(...(Array.isArray(d.nodes)?d.nodes:[]).filter(x=>x.companyId===row.company_id));
+        state.orgEdges.push(...(Array.isArray(d.edges)?d.edges:[]).filter(x=>x.companyId===row.company_id));
+      }else if(row.document_key==="workflows"){
+        state.workflows.push(...(Array.isArray(d.workflows)?d.workflows:[]));
+        state.workflowNodes.push(...(Array.isArray(d.nodes)?d.nodes:[]));
+        state.workflowEdges.push(...(Array.isArray(d.edges)?d.edges:[]));
+      }
+    }
+    if(!state.projects.some(p=>p.id===state.activeProjectId))
+      state.activeProjectId=state.projects.find(p=>p.companyId===state.activeCompanyId)?.id||null;
+    render();
+  }
+  async function persistBoard(companyId=state.activeCompanyId){
+    if(!companyId||!currentUser)return;
+    const projects=state.projects.filter(p=>p.companyId===companyId);
+    const projectIds=new Set(projects.map(p=>p.id));
+    const workflows=state.workflows.filter(w=>projectIds.has(w.projectId));
+    const wfIds=new Set(workflows.map(w=>w.id));
+    const docs=[
+      {company_id:companyId,document_key:"organization",document:{
+        nodes:state.orgNodes.filter(x=>x.companyId===companyId),edges:state.orgEdges.filter(x=>x.companyId===companyId)}},
+      {company_id:companyId,document_key:"workflows",document:{workflows,
+        nodes:state.workflowNodes.filter(x=>wfIds.has(x.workflowId)),
+        edges:state.workflowEdges.filter(x=>wfIds.has(x.workflowId))}}
+    ];
+    throwIfError(await supabaseClient.from("workspace_documents").upsert(docs,{onConflict:"company_id,document_key"}));
+  }
+  function scheduleBoardSave(){
+    boardDirty=true;clearTimeout(boardSaveTimer);
+    const companyId=state.activeCompanyId;
+    boardSaveTimer=setTimeout(async()=>{try{await persistBoard(companyId);boardDirty=false;}
+      catch(err){notifyError("Board sync failed",err);}},500);
+  }
 
   const el = id => document.getElementById(id);
   const view = el("view");
@@ -284,7 +362,7 @@
   const activeWorkflow = () => {
     const p=project(); if(!p) return null;
     let w=state.workflows.find(w=>w.projectId===p.id);
-    if(!w){ w={id:uid("w"),projectId:p.id,name:p.name+" Workflow"}; state.workflows.push(w); save(); }
+    if(!w){ w={id:uid("w"),projectId:p.id,name:p.name+" Workflow"}; state.workflows.push(w); scheduleBoardSave(); }
     return w;
   };
   const esc = s => String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
@@ -312,9 +390,7 @@
       state.activeCompanyId=state.companies[0]?.id||null;
     }
 
-    // Projects/agents/messages are intentionally still local in v0.5.
-    // Do not attach old demo data to a real Supabase company UUID.
-    state.activeProjectId=state.projects.find(p=>p.companyId===state.activeCompanyId)?.id||null;
+    // Keep selected project if it belongs to the selected company.
     save();
   }
 
@@ -388,8 +464,8 @@
           <div class="stat"><span>Workflow</span><strong>${activeWorkflow()?.name||"Not configured"}</strong></div>
           <div class="stat"><span>Agents</span><strong>${agents.length}</strong></div>
           <div class="stat"><span>AI mode</span><strong>Live API · Single agent</strong></div>
-          <div class="stat"><span>Chat storage</span><strong>Local browser only</strong></div>
-          <p class="hint" style="margin-top:14px">Real AI requires the agent-chat Edge Function and OPENAI_API_KEY secret. Each send makes a billable API call.</p>
+          <div class="stat"><span>Chat storage</span><strong>Supabase Cloud</strong></div>
+          <p class="hint" style="margin-top:14px">AI replies require a deployed agent-chat Edge Function. BYOK connections are not yet implemented; do not deploy the platform-key prototype for public users.</p>
         </aside>
       </div>`;
     const box=el("messages"); box.scrollTop=box.scrollHeight;
@@ -417,7 +493,12 @@
     const responder=mentioned||agents.find(a=>a.role.toLowerCase()==="ceo")||agents[0];
     if(!responder){toast("Hire an AI Employee for this project first.");return;}
     const companyId=c.id, projectId=p.id;
-    state.messages.push({id:uid("m"),projectId,senderType:"human",senderName:"You",content:text,time:now()});
+    try{
+      const row=throwIfError(await supabaseClient.from("messages").insert({
+        project_id:projectId,sender_type:"user",sender_user_id:currentUser.id,content:text
+      }).select().single());
+      state.messages.push(dbMessage(row));
+    }catch(err){notifyError("Message save failed",err);return;}
     input.value=""; save();
     aiBusy=true;
     const requestId=++aiRequestId;
@@ -499,12 +580,15 @@
       <label><input type="checkbox" data-perm="override" ${a.permissions.includes("override")?"checked":""}> Override decisions</label></div>
       <button class="primary" id="saveOrgAgent">Save Changes</button>`;
     el("oiWeight").oninput=e=>el("weightLabel").textContent=e.target.value;
-    el("saveOrgAgent").onclick=()=>{
+    el("saveOrgAgent").onclick=async()=>{
       a.name=el("oiName").value.trim()||a.name;a.role=el("oiRole").value.trim()||a.role;a.authority=el("oiAuthority").value;
       a.weight=+el("oiWeight").value;a.prompt=el("oiPrompt").value;
       const keep=a.permissions.filter(p=>!["assign","review","approve","stop","override"].includes(p));
       box.querySelectorAll("[data-perm]").forEach(c=>{if(c.checked)keep.push(c.dataset.perm)});a.permissions=keep;
-      save();toast("Agent updated");renderOrganization();
+      try{throwIfError(await supabaseClient.from("agents").update({name:a.name,role:a.role,
+        authority:a.authority,decision_weight:a.weight,system_prompt:a.prompt,permissions:a.permissions})
+        .eq("id",a.id).select().single());toast("Agent updated");renderOrganization();}
+      catch(err){notifyError("Agent update failed",err);await loadWorkspace();}
     };
   }
 
@@ -514,7 +598,7 @@
     if(!choices.length){toast("All company agents are already on the board.");return;}
     openModal("Add Agent to Organization",`
       <div class="field"><label>Agent</label><select name="agentId">${choices.map(a=>`<option value="${a.id}">${esc(a.name)} · ${esc(a.role)}</option>`).join("")}</select></div>`,
-      data=>{state.orgNodes.push({id:uid("on"),companyId:state.activeCompanyId,agentId:data.agentId,x:420,y:260});save();renderOrganization();}
+      data=>{state.orgNodes.push({id:uid("on"),companyId:state.activeCompanyId,agentId:data.agentId,x:420,y:260});scheduleBoardSave();renderOrganization();}
     );
   }
 
@@ -529,7 +613,7 @@
     children.forEach((n,i)=>{n.x=180+i*300;n.y=360});
     const rest=nodes.filter(n=>n!==root&&!children.includes(n));
     rest.forEach((n,i)=>{n.x=260+i*280;n.y=620});
-    save();renderOrganization();
+    scheduleBoardSave();renderOrganization();
   }
 
   function renderWorkflow(){
@@ -582,7 +666,7 @@
       approval:["Human Approval","Wait for human"],loop:["Review Loop","Check and give feedback"],output:["Output","Final deliverable"]
     }[type]||["Step",type];
     state.workflowNodes.push({id:uid("wn"),workflowId:w.id,type,title:defaults[0],subtitle:defaults[1],x:380+Math.random()*220,y:260+Math.random()*180});
-    save();renderWorkflow();
+    scheduleBoardSave();renderWorkflow();
   }
 
   function renderWorkflowInspector(nodeId){
@@ -595,8 +679,8 @@
       ${n.type==="agent"?`<div class="field"><label>Agent</label><select id="wiAgent"><option value="">Unassigned</option>${agents.map(a=>`<option value="${a.id}" ${a.id===n.agentId?"selected":""}>${esc(a.name)} · ${esc(a.role)}</option>`).join("")}</select></div>`:""}
       <button class="primary" id="saveWfNode">Save Step</button>
       <button class="danger-btn" style="margin-top:8px;width:100%" id="deleteWfNode">Delete Step</button>`;
-    el("saveWfNode").onclick=()=>{n.title=el("wiTitle").value.trim()||n.title;n.subtitle=el("wiSubtitle").value;if(n.type==="agent")n.agentId=el("wiAgent").value||null;save();renderWorkflow();};
-    el("deleteWfNode").onclick=()=>{state.workflowNodes=state.workflowNodes.filter(x=>x.id!==n.id);state.workflowEdges=state.workflowEdges.filter(e=>e.source!==n.id&&e.target!==n.id);save();renderWorkflow();};
+    el("saveWfNode").onclick=()=>{n.title=el("wiTitle").value.trim()||n.title;n.subtitle=el("wiSubtitle").value;if(n.type==="agent")n.agentId=el("wiAgent").value||null;scheduleBoardSave();renderWorkflow();};
+    el("deleteWfNode").onclick=()=>{state.workflowNodes=state.workflowNodes.filter(x=>x.id!==n.id);state.workflowEdges=state.workflowEdges.filter(e=>e.source!==n.id&&e.target!==n.id);scheduleBoardSave();renderWorkflow();};
   }
 
   function renderEdgeInspector(kind,edgeId){
@@ -608,16 +692,16 @@
         <div class="field"><label>Relationship</label><select id="reType">${["manages","delegates","reviews","communicates"].map(v=>`<option ${v===e.type?"selected":""}>${v}</option>`).join("")}</select></div>
         <div class="checks"><label><input id="reAssign" type="checkbox" ${e.assign?"checked":""}> Can assign tasks</label><label><input id="reReview" type="checkbox" ${e.review?"checked":""}> Can review</label><label><input id="reApprove" type="checkbox" ${e.approve?"checked":""}> Can approve</label></div>
         <button class="primary" id="saveRel">Save Relationship</button><button class="danger-btn" id="delRel" style="width:100%;margin-top:8px">Delete Relationship</button>`;
-      el("saveRel").onclick=()=>{e.type=el("reType").value;e.assign=el("reAssign").checked;e.review=el("reReview").checked;e.approve=el("reApprove").checked;save();toast("Relationship updated");};
-      el("delRel").onclick=()=>{state.orgEdges=state.orgEdges.filter(x=>x.id!==e.id);save();renderOrganization();};
+      el("saveRel").onclick=()=>{e.type=el("reType").value;e.assign=el("reAssign").checked;e.review=el("reReview").checked;e.approve=el("reApprove").checked;scheduleBoardSave();toast("Relationship updated");};
+      el("delRel").onclick=()=>{state.orgEdges=state.orgEdges.filter(x=>x.id!==e.id);scheduleBoardSave();renderOrganization();};
     }else{
       box.innerHTML=`<h4>ARROW / ROUTE</h4>
         <div class="field"><label>Route Label</label><input id="eeLabel" value="${esc(e.label||"")}"></div>
         <div class="checks"><label><input id="eeLoop" type="checkbox" ${e.loop?"checked":""}> Feedback / loop edge</label></div>
         <div class="field"><label>Maximum loops / retries</label><input id="eeMax" type="number" min="1" max="20" value="${e.maxLoops||3}"></div>
         <button class="primary" id="saveEdge">Save Arrow</button><button class="danger-btn" id="delEdge" style="width:100%;margin-top:8px">Delete Arrow</button>`;
-      el("saveEdge").onclick=()=>{e.label=el("eeLabel").value;e.loop=el("eeLoop").checked;e.maxLoops=Math.max(1,Math.min(20,+el("eeMax").value||3));save();renderWorkflow();};
-      el("delEdge").onclick=()=>{state.workflowEdges=state.workflowEdges.filter(x=>x.id!==e.id);save();renderWorkflow();};
+      el("saveEdge").onclick=()=>{e.label=el("eeLabel").value;e.loop=el("eeLoop").checked;e.maxLoops=Math.max(1,Math.min(20,+el("eeMax").value||3));scheduleBoardSave();renderWorkflow();};
+      el("delEdge").onclick=()=>{state.workflowEdges=state.workflowEdges.filter(x=>x.id!==e.id);scheduleBoardSave();renderWorkflow();};
     }
   }
 
@@ -696,7 +780,7 @@
             if(!state.workflowEdges.some(x=>x.workflowId===w.id&&x.source===connect.nodeId&&x.target===target.dataset.node))
               state.workflowEdges.push({id:uid("we"),workflowId:w.id,source:connect.nodeId,target:target.dataset.node,label:""});
           }
-          save();
+          scheduleBoardSave();
         }
         connect=null; kind==="org"?renderOrganization():renderWorkflow();
       });
@@ -710,7 +794,7 @@
     });
     world.addEventListener("pointerup",()=>{
       if(drag){
-        const n=nodes.find(x=>x.id===drag.id);if(n){n.x=parseFloat(drag.node.style.left);n.y=parseFloat(drag.node.style.top);save();}
+        const n=nodes.find(x=>x.id===drag.id);if(n){n.x=parseFloat(drag.node.style.left);n.y=parseFloat(drag.node.style.top);scheduleBoardSave();}
         drag=null;
       }
     });
@@ -783,9 +867,13 @@
     if(!state.activeCompanyId){toast("Create a company first.");return;}
     openModal("New Project",`
       <div class="field"><label>Project Name</label><input required name="name" placeholder="e.g. Product Launch"></div>
-      <div class="field"><label>Description</label><textarea name="description" placeholder="What is this project trying to accomplish?"></textarea></div>`,
-      d=>{const p={id:uid("p"),companyId:state.activeCompanyId,name:d.name.trim(),description:d.description};state.projects.push(p);state.activeProjectId=p.id;state.activeView="chat";save();render();}
-    );
+      <div class="field"><label>Description</label><textarea name="description"></textarea></div>`,
+      async d=>{
+        const row=throwIfError(await supabaseClient.from("projects").insert({
+          company_id:state.activeCompanyId,name:d.name.trim(),description:d.description||"",created_by:currentUser.id
+        }).select().single());
+        state.projects.push(dbProject(row));state.activeProjectId=row.id;state.activeView="chat";render();
+      });
   }
   function hireAgent(){
     if(!state.activeCompanyId){toast("Create a company first.");return;}
@@ -794,9 +882,20 @@
       <div class="field"><label>Role</label><input required name="role" placeholder="e.g. Engineer"></div>
       <div class="field"><label>Provider</label><select name="provider"><option>OpenAI</option><option>Anthropic</option><option>Google</option><option>OpenRouter</option></select></div>
       <div class="field"><label>Model</label><input name="model" placeholder="Model name"></div>
-      <div class="field"><label>System Prompt</label><textarea name="prompt" placeholder="Define this employee's responsibilities…"></textarea></div>`,
-      d=>{const a={id:uid("a"),companyId:state.activeCompanyId,name:d.name.trim(),role:d.role.trim(),provider:d.provider,model:d.model||"Default",prompt:d.prompt,authority:"Specialist",weight:50,permissions:["communicate"]};state.agents.push(a);state.orgNodes.push({id:uid("on"),companyId:state.activeCompanyId,agentId:a.id,x:400,y:260});const p=project();if(p)state.projectAgents.push({projectId:p.id,agentId:a.id});save();render();}
-    );
+      <div class="field"><label>System Prompt</label><textarea name="prompt"></textarea></div>`,
+      async d=>{
+        const row=throwIfError(await supabaseClient.from("agents").insert({
+          company_id:state.activeCompanyId,name:d.name.trim(),role:d.role.trim(),provider:d.provider,
+          model:d.model||"Default",system_prompt:d.prompt||"",authority:"Specialist",
+          decision_weight:50,permissions:["communicate"],created_by:currentUser.id
+        }).select().single());
+        const a=dbAgent(row);state.agents.push(a);
+        const p=project();
+        if(p){try{throwIfError(await supabaseClient.from("project_agents").insert({project_id:p.id,agent_id:a.id}));
+          state.projectAgents.push({projectId:p.id,agentId:a.id});}catch(err){notifyError("Agent assignment failed",err);}}
+        state.orgNodes.push({id:uid("on"),companyId:state.activeCompanyId,agentId:a.id,x:400,y:260});
+        scheduleBoardSave();render();
+      });
   }
   function editAgent(agentId){
     const a=state.agents.find(x=>x.id===agentId);if(!a)return;
@@ -806,9 +905,17 @@
       <div class="field"><label>Provider</label><select name="provider">${["OpenAI","Anthropic","Google","OpenRouter"].map(x=>`<option ${x===a.provider?"selected":""}>${x}</option>`).join("")}</select></div>
       <div class="field"><label>Model</label><input name="model" value="${esc(a.model)}"></div>
       <div class="field"><label>System Prompt</label><textarea name="prompt">${esc(a.prompt||"")}</textarea></div>
-      <div class="field"><label>Assign to current project?</label><select name="assign"><option value="yes">Yes</option><option value="no">No</option></select></div>`,
-      d=>{a.name=d.name.trim();a.role=d.role.trim();a.provider=d.provider;a.model=d.model;a.prompt=d.prompt;const p=project();if(p){const exists=state.projectAgents.some(x=>x.projectId===p.id&&x.agentId===a.id);if(d.assign==="yes"&&!exists)state.projectAgents.push({projectId:p.id,agentId:a.id});if(d.assign==="no"&&exists)state.projectAgents=state.projectAgents.filter(x=>!(x.projectId===p.id&&x.agentId===a.id));}save();render();}
-    );
+      <div class="field"><label>Assign to current project?</label><select name="assign"><option value="yes" ${project()&&state.projectAgents.some(x=>x.projectId===project().id&&x.agentId===a.id)?"selected":""}>Yes</option><option value="no">No</option></select></div>`,
+      async d=>{
+        throwIfError(await supabaseClient.from("agents").update({name:d.name.trim(),role:d.role.trim(),
+          provider:d.provider,model:d.model,system_prompt:d.prompt}).eq("id",a.id).select().single());
+        Object.assign(a,{name:d.name.trim(),role:d.role.trim(),provider:d.provider,model:d.model,prompt:d.prompt});
+        const p=project();if(p){
+          const exists=state.projectAgents.some(x=>x.projectId===p.id&&x.agentId===a.id);
+          if(d.assign==="yes"&&!exists){throwIfError(await supabaseClient.from("project_agents").insert({project_id:p.id,agent_id:a.id}));state.projectAgents.push({projectId:p.id,agentId:a.id});}
+          if(d.assign==="no"&&exists){throwIfError(await supabaseClient.from("project_agents").delete().eq("project_id",p.id).eq("agent_id",a.id));state.projectAgents=state.projectAgents.filter(x=>!(x.projectId===p.id&&x.agentId===a.id));}
+        }render();
+      });
   }
 
   document.addEventListener("click",e=>{
@@ -843,8 +950,9 @@
     el("authSwitchBtn").textContent=signup?"Sign in":forgot||recovery?"Sign in":"Create account";
   };
 
-  const showApp=async user=>{currentUser=user;el("authScreen").classList.add("hidden");el("app").style.display="grid";el("userEmail").textContent=user?.email||"";try{await loadCompaniesFromSupabase();}catch(err){console.error("Company load failed",err);toast("Company load failed: "+(err?.message||"Unknown error"));state.companies=[];state.activeCompanyId=null;}render();};
-  const showLogin=()=>{currentUser=null;el("app").style.display="none";el("authScreen").classList.remove("hidden");setAuthMode("signin");};
+  let loadingUserId=null;
+  const showApp=async user=>{if(loadingUserId===user?.id)return;loadingUserId=user?.id;currentUser=user;el("authScreen").classList.add("hidden");el("app").style.display="grid";el("userEmail").textContent=user?.email||"";try{await loadCompaniesFromSupabase();await loadWorkspace();}catch(err){console.error("Company load failed",err);toast("Company load failed: "+(err?.message||"Unknown error"));state.companies=[];state.activeCompanyId=null;}render();};
+  const showLogin=()=>{loadingUserId=null;workspaceLoadSeq++;currentUser=null;state.projects=[];state.agents=[];state.projectAgents=[];state.messages=[];state.orgNodes=[];state.orgEdges=[];state.workflows=[];state.workflowNodes=[];state.workflowEdges=[];state.companies=[];el("app").style.display="none";el("authScreen").classList.remove("hidden");setAuthMode("signin");};
 
   el("authSwitchBtn").onclick=()=>{
     if(authMode==="signin")setAuthMode("signup");
