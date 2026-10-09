@@ -870,7 +870,7 @@
       <div class="field"><label>Description</label><textarea name="description"></textarea></div>`,
       async d=>{
         const row=throwIfError(await supabaseClient.from("projects").insert({
-          company_id:state.activeCompanyId,name:d.name.trim(),description:d.description||"",created_by:currentUser.id
+          company_id:state.activeCompanyId,name:d.name.trim(),description:d.description||"",status:"active",created_by:currentUser.id
         }).select().single());
         state.projects.push(dbProject(row));state.activeProjectId=row.id;state.activeView="chat";render();
       });
